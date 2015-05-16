@@ -86,17 +86,6 @@ public class RssStreamProviderTask implements Runnable {
     private DateTime publishedSince;
 
     /**
-     * Non-perpetual mode, no date filter, time out of 10 sec
-     * 
-     * @see {@link org.apache.streams.rss.provider.RssStreamProviderTask#RssStreamProviderTask(java.util.concurrent.BlockingQueue, String, org.joda.time.DateTime, int, boolean)}
-     * @param queue
-     * @param rssFeed
-     */
-    public RssStreamProviderTask(BlockingQueue<Datum> queue, String rssFeed) {
-        this(queue, rssFeed, new DateTime().minusYears(30), DEFAULT_TIME_OUT);
-    }
-
-    /**
      * Non-perpetual mode, no date filter
      * 
      * @see {@link org.apache.streams.rss.provider.RssStreamProviderTask#RssStreamProviderTask(java.util.concurrent.BlockingQueue, String, org.joda.time.DateTime, int, boolean)}

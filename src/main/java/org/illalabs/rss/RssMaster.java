@@ -13,13 +13,17 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.sun.syndication.io.FeedException;
 
 /**
- *
+ * Spawns threads to check on the last time a RSS has been read.
  */
-public class RssTest {
+public class RssMaster {
+    private final static Logger LOGGER = LoggerFactory
+            .getLogger(RssMaster.class);
     private static ExecutorService execService;
     public static BlockingQueue<FeedDetails> rssQueue;
 
@@ -40,30 +44,6 @@ public class RssTest {
         }
         execService.shutdown();
 
-        // RssStreamProviderTask task = new RssStreamProviderTask(filledQueue,
-        // "fake url", publishedSince, 10000);
-        // Set<String> batch = task.queueFeedEntries(new
-        // URL("http://diariocorreo.pe/rss/"));
-        // System.out.println(filledQueue);
-        // System.out.println(batch);
-        // assertEquals( 15, queue.size());
-        // assertEquals( 20 , batch.size());
-        // assertTrue( queue.size() < batch.size());
-        // RssStreamProviderTask.PREVIOUSLY_SEEN.put("fake url", batch);
-        // Test that it will not out put previously seen articles
-        // filledQueue.clear();
-        // batch = task.queueFeedEntries(new
-        // URL("resource:///test_rss_xml/economist1.xml"));
-        // assertEquals( 0, queue.size());
-        // assertEquals( 20 , batch.size());
-        // assertTrue( queue.size() < batch.size());
-        // RssStreamProviderTask.PREVIOUSLY_SEEN.put("fake url", batch);
-
-        // batch = task.queueFeedEntries(new
-        // URL("resource:///test_rss_xml/economist2.xml"));
-        // assertTrue( queue.size() < batch.size());
-        // assertEquals("Expected queue size to be 0", 3, queue.size());
-        // assertEquals("Expected batch size to be 0", 25, batch.size());
     }
 
     private static BlockingQueue<FeedDetails> loadRssFile(String rssPath) {
@@ -73,10 +53,10 @@ public class RssTest {
                     .getDefault().getPath(rssPath), Charset.defaultCharset());
             for (String line : readAllLines) {
                 String[] split = line.split(",");
-                rssQueue.add(new FeedDetails(split[0], split[1]));
+                rssQueue.put(new FeedDetails(split[0], split[1]));
             }
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
+        } catch (IOException | InterruptedException e) {
+            LOGGER.error("Error while reading RSS list file.");
             e.printStackTrace();
         }
         return rssQueue;

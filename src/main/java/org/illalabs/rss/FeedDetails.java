@@ -4,6 +4,7 @@ public class FeedDetails {
 
     private String url;
     private Integer pollIntervalMillis;
+    private Long lastPolled;
 
     public FeedDetails(String string, String pollInterval) {
         this.setUrl(string);
@@ -34,5 +35,13 @@ public class FeedDetails {
         StringBuilder sb = new StringBuilder();
         return sb.append("[").append(url).append(":")
                 .append(pollIntervalMillis).append("]").toString();
+    }
+
+    public Long getLastPolled() {
+        return lastPolled;
+    }
+
+    public void setLastPolled(Long lastPolled) {
+        this.lastPolled = lastPolled;
     }
 }
