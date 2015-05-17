@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
@@ -44,27 +45,13 @@ import com.sun.syndication.io.SyndFeedInput;
  * A {@link java.lang.Runnable} task that queues rss feed data.
  *
  * <code>RssStreamProviderTask</code> reads the content of an rss feed and
- * queues the articles from the feed inform of a
- * {@link com.fasterxml.jackson.databind.node.ObjectNode} wrapped in a
- * {@link org.apache.streams.Datum.StreamsDatum}. The task can filter articles
- * by a published date. If the task cannot parse the date of the article or the
- * article does not contain a published date, by default the task will attempt
- * to queue article.
- *
- * A task can be run in perpetual mode which will store the article urls in a
- * static variable. The next time a <code>RssStreamProviderTask</code> is run,
- * it will not queue data that was seen the previous time the rss feed was read.
- * This is an attempt to reduce multiple copies of an article from being out put
- * by a {@link org.apache.streams.rss.provider.RssStreamProvider}.
- *
- * ** Warning! ** It still is possible to output multiples of the same article.
- * If multiple tasks executions for the same rss feed overlap in execution time,
- * it possible that the previously seen articles static variable will not have
- * been updated in time.
+ * queues the articles from the feed inform of a Datum The task can filter
+ * articles by a published date.
  *
  */
 public class RssStreamProviderTask implements Runnable {
 
+    private static final int MAX_RETRIES = 5;
     private final static Logger LOGGER = LoggerFactory
             .getLogger(RssStreamProviderTask.class);
     private static final int DEFAULT_TIME_OUT = 10000; // 10 seconds
@@ -80,15 +67,15 @@ public class RssStreamProviderTask implements Runnable {
     protected static final Map<String, Set<String>> PREVIOUSLY_SEEN = new ConcurrentHashMap<>();
 
     private BlockingQueue<Datum> dataQueue;
-    private String rssFeed;
     private int timeOut;
     private SyndEntrySerializer serializer;
     private DateTime publishedSince;
+    private FeedDetails feedDetails;
+    private BlockingQueue<FeedDetails> rssQueue;
 
     /**
      * Non-perpetual mode, no date filter
      * 
-     * @see {@link org.apache.streams.rss.provider.RssStreamProviderTask#RssStreamProviderTask(java.util.concurrent.BlockingQueue, String, org.joda.time.DateTime, int, boolean)}
      * @param queue
      * @param rssFeed
      * @param timeOut
@@ -101,7 +88,6 @@ public class RssStreamProviderTask implements Runnable {
     /**
      * Non-perpetual mode, time out of 10 sec
      * 
-     * @see {@link org.apache.streams.rss.provider.RssStreamProviderTask#RssStreamProviderTask(java.util.concurrent.BlockingQueue, String, org.joda.time.DateTime, int, boolean)}
      * @param queue
      * @param rssFeed
      * @param publishedSince
@@ -130,7 +116,6 @@ public class RssStreamProviderTask implements Runnable {
     public RssStreamProviderTask(BlockingQueue<Datum> queue, String rssFeed,
             DateTime publishedSince, int timeOut) {
         this.dataQueue = queue;
-        this.rssFeed = rssFeed;
         this.timeOut = timeOut;
         this.publishedSince = publishedSince;
         this.serializer = new SyndEntrySerializer();
@@ -140,31 +125,69 @@ public class RssStreamProviderTask implements Runnable {
             BlockingQueue<Datum> dQueue, String string,
             DateTime publishedSince, int timeOut) {
         this.dataQueue = dQueue;
-        FeedDetails polled = rssQueue.poll();
-        this.rssFeed = polled.getUrl();
+        this.rssQueue = rssQueue;
         this.timeOut = timeOut;
         this.publishedSince = publishedSince;
         this.serializer = new SyndEntrySerializer();
     }
 
-    /**
-     * The rss feed url that this task is responsible for reading
-     * 
-     * @return rss feed url
-     */
-    public String getRssFeed() {
-        return this.rssFeed;
-    }
-
     @Override
     public void run() {
+        boolean work = true;
+        int retries = 0;
         try {
-            Set<String> batch = queueFeedEntries(new URL(this.getRssFeed()));
-            System.out.println("Batch " + this.getRssFeed());
-            PREVIOUSLY_SEEN.put(this.getRssFeed(), batch);
-        } catch (IOException | FeedException e) {
+            while (work) {
+                feedDetails = this.rssQueue.poll();
+                //If there is nothing, then wait for some time
+                if (retries < MAX_RETRIES && this.feedDetails == null) {
+                    this.waiting(DEFAULT_TIME_OUT / (ThreadLocalRandom.current().nextInt(MAX_RETRIES)+1));
+                    retries ++;
+                }
+                else if (this.feedDetails != null){
+                    // if enough time has passed, then read again
+                    long waitTime = (System.currentTimeMillis() - this.feedDetails
+                            .getLastPolled()) / 1000;
+                    if (waitTime > this.feedDetails.getPollIntervalMillis()) {
+                        Set<String> batch = queueFeedEntries(new URL(
+                                feedDetails.getUrl()));
+                        // do something with batch
+                        System.out.println("Batch " + feedDetails.getUrl()
+                                + " " + this.feedDetails.getLastPolled() + "");
+                        PREVIOUSLY_SEEN.put(feedDetails.getUrl(), batch);
+                        work = false;
+                        this.feedDetails.setLastPolled(System
+                                .currentTimeMillis());
+                    } else {
+                        LOGGER.info(this.feedDetails.getUrl()
+                                + " has been already polled.");
+                        this.waiting(waitTime);
+                    }
+                    // Put back the item we just worked with
+                    this.rssQueue.put(this.feedDetails);
+                } else {
+                    // if we waited, and there is nothing to work on
+                    work = false;
+                }
+            }
+            LOGGER.info("Worker finished");
+
+        } catch (IOException | FeedException | InterruptedException e) {
             LOGGER.warn("Exception while reading rss stream, {} : {}",
-                    this.rssFeed, e);
+                    feedDetails, e);
+        }
+    }
+
+    /**
+     * Safe waiting
+     * 
+     * @param waitTime
+     * @throws InterruptedException
+     */
+    private void waiting(long waitTime) throws InterruptedException {
+        LOGGER.info("Waiting for " + waitTime + " mlsecs.");
+        System.out.println("waiting" + waitTime);
+        synchronized (this) {
+            this.wait(waitTime);
         }
     }
 
@@ -192,7 +215,7 @@ public class RssStreamProviderTask implements Runnable {
         for (Object entryObj : feed.getEntries()) {
             SyndEntry entry = (SyndEntry) entryObj;
             ObjectNode nodeEntry = this.serializer.deserialize(entry);
-            nodeEntry.put(RSS_KEY, this.rssFeed);
+            nodeEntry.put(RSS_KEY, this.feedDetails.getUrl());
             String entryId = determineId(nodeEntry);
             batch.add(entryId);
             Datum datum = new Datum(nodeEntry);
@@ -203,7 +226,8 @@ public class RssStreamProviderTask implements Runnable {
                         DateTime date = RFC3339Utils.parseToUTC(published
                                 .asText());
                         if (date.isAfter(this.publishedSince)
-                                && (!seenBefore(entryId, this.rssFeed))) {
+                                && (!seenBefore(entryId,
+                                        this.feedDetails.getUrl()))) {
                             this.dataQueue.put(datum);
                             LOGGER.debug("Added entry, {}, to provider queue.",
                                     entryId);
@@ -212,7 +236,7 @@ public class RssStreamProviderTask implements Runnable {
                         Thread.currentThread().interrupt();
                     } catch (Exception e) {
                         LOGGER.trace("Failed to parse date from object node, attempting to add node to queue by default.");
-                        if (!seenBefore(entryId, this.rssFeed)) {
+                        if (!seenBefore(entryId, this.feedDetails.getUrl())) {
                             this.dataQueue.put(datum);
                             LOGGER.debug("Added entry, {}, to provider queue.",
                                     entryId);
@@ -220,7 +244,7 @@ public class RssStreamProviderTask implements Runnable {
                     }
                 } else {
                     LOGGER.debug("No published date present, attempting to add node to queue by default.");
-                    if (!seenBefore(entryId, this.rssFeed)) {
+                    if (!seenBefore(entryId, this.feedDetails.getUrl())) {
                         this.dataQueue.put(datum);
                         LOGGER.debug("Added entry, {}, to provider queue.",
                                 entryId);
