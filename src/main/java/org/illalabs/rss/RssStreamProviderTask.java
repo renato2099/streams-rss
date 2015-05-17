@@ -185,7 +185,6 @@ public class RssStreamProviderTask implements Runnable {
      */
     private void waiting(long waitTime) throws InterruptedException {
         LOGGER.info("Waiting for " + waitTime + " mlsecs.");
-        System.out.println("waiting" + waitTime);
         synchronized (this) {
             this.wait(waitTime);
         }
