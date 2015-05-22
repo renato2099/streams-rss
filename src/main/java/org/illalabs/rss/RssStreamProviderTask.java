@@ -110,8 +110,6 @@ public class RssStreamProviderTask implements Runnable {
      *            published times after this
      * @param timeOut
      *            url connection timeout in milliseconds
-     * @param perpetual
-     *            true, if you want to run in perpetual mode. NOT RECOMMENDED
      */
     public RssStreamProviderTask(BlockingQueue<Datum> queue, String rssFeed,
             DateTime publishedSince, int timeOut) {
@@ -217,7 +215,7 @@ public class RssStreamProviderTask implements Runnable {
             nodeEntry.put(RSS_KEY, this.feedDetails.getUrl());
             String entryId = determineId(nodeEntry);
             batch.add(entryId);
-            Datum datum = new Datum(nodeEntry);
+            Datum datum = new Datum(nodeEntry, entryId, DateTime.now());
             try {
                 JsonNode published = nodeEntry.get(DATE_KEY);
                 if (published != null) {

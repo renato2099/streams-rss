@@ -24,10 +24,7 @@ import java.nio.charset.Charset;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -47,7 +44,7 @@ public class RssMaster {
     public static BlockingQueue<FeedDetails> rssQueue;
 
     public static void main(String[] args) throws MalformedURLException,
-            IOException, FeedException {
+            IOException, FeedException, InterruptedException {
         // create thread pool
         execService = Executors.newFixedThreadPool(3);
         // load rss file into queue
@@ -63,8 +60,18 @@ public class RssMaster {
             execService.execute(new RssStreamProviderTask(rssQueue, filledQueue,
                     "url", publishedSince, 10000));
         }
+        execService.awaitTermination(30L, TimeUnit.SECONDS);
+        System.out.println("--------a----------");
+        printQueue(filledQueue);
+        System.out.println("--------a----------");
         execService.shutdown();
 
+    }
+
+    private static void printQueue(BlockingQueue<Datum> filledQueue) {
+        while (filledQueue.peek() != null) {
+            System.out.println(filledQueue.poll().toString());
+        }
     }
 
     private static BlockingQueue<FeedDetails> loadRssFile(String rssPath) {
